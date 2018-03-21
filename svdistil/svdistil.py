@@ -1,30 +1,29 @@
 '''
 Module      : Main
 Description : The main entry point for the program.
-Copyright   : (c) Bernie Pope, 2016
-License     : MIT
+Copyright   : (c) Bernie Pope, 2018
+License     : BSD-2-Clause 
 Maintainer  : bjpope@unimelb.edu.au
 Portability : POSIX
 
-The program reads one or more input FASTA files. For each file it computes a
-variety of statistics, and then prints a summary of the statistics as output.
+Convert DNA structural variants in VCF files into BED format.
 '''
 
 from argparse import ArgumentParser
-from math import floor
 import sys
 import logging
 import pkg_resources
-from Bio import SeqIO
+import csv
+import re
+from cyvcf2 import VCF
 
 
 EXIT_FILE_IO_ERROR = 1
 EXIT_COMMAND_LINE_ERROR = 2
-EXIT_FASTA_FILE_ERROR = 3
-DEFAULT_MIN_LEN = 0
+EXIT_VCF_FILE_ERROR = 3
 DEFAULT_VERBOSE = False
-HEADER = 'FILENAME\tNUMSEQ\tTOTAL\tMIN\tAVG\tMAX'
-PROGRAM_NAME = "svdistil-py"
+DEFAULT_MIN_QUAL_THRESHOLD = 0.0
+PROGRAM_NAME = "svdistil"
 
 
 try:
@@ -52,15 +51,8 @@ def parse_args():
     Returns Options object with command line argument values as attributes.
     Will exit the program on a command line error.
     '''
-    description = 'Read one or more FASTA files, compute simple stats for each file'
+    description = 'Convert DNA structural variants in VCF files into BED format'
     parser = ArgumentParser(description=description)
-    parser.add_argument(
-        '--minlen',
-        metavar='N',
-        type=int,
-        default=DEFAULT_MIN_LEN,
-        help='Minimum length sequence to include in stats (default {})'.format(
-            DEFAULT_MIN_LEN))
     parser.add_argument('--version',
                         action='version',
                         version='%(prog)s ' + PROGRAM_VERSION)
@@ -68,137 +60,98 @@ def parse_args():
                         metavar='LOG_FILE',
                         type=str,
                         help='record program progress in LOG_FILE')
-    parser.add_argument('fasta_files',
+    parser.add_argument('--qual',
+                        metavar='MIN_QUAL_THRESHOLD',
+                        type=float,
+                        default=DEFAULT_MIN_QUAL_THRESHOLD,
+                        help='minimum QUAL threshold, variants below this will be discarded')
+    parser.add_argument('vcf_files',
                         nargs='*',
-                        metavar='FASTA_FILE',
+                        metavar='VCF_FILE',
                         type=str,
-                        help='Input FASTA files')
+                        help='Input VCF files')
     return parser.parse_args()
 
+'''
+According to VCF 4.2 spec, section 5.4
 
-class FastaStats(object):
-    '''Compute various statistics for a FASTA file:
+There are 4 possible ways to create the ALT in a SVTYPE=BND. In each of the 4 cases,
+the assertion is that s (the REF) is replaced with t, and then some piece starting at
+position p is joined to t. The cases are:
 
-    num_seqs: the number of sequences in the file satisfying the minimum
-       length requirement (minlen_threshold).
-    num_bases: the total length of all the counted sequences.
-    min_len: the minimum length of the counted sequences.
-    max_len: the maximum length of the counted sequences.
-    average: the average length of the counted sequences rounded down
-       to an integer.
-    '''
-    #pylint: disable=too-many-arguments
-    def __init__(self,
-                 num_seqs=None,
-                 num_bases=None,
-                 min_len=None,
-                 max_len=None,
-                 average=None):
-        "Build an empty FastaStats object"
-        self.num_seqs = num_seqs
-        self.num_bases = num_bases
-        self.min_len = min_len
-        self.max_len = max_len
-        self.average = average
+s t[p[ piece extending to the right of p is joined after t
+s t]p] reverse comp piece extending left of p is joined after t
+s ]p]t piece extending to the left of p is joined before t
+s [p[t reverse comp piece extending right of p is joined before t
+'''
 
-    def __eq__(self, other):
-        "Two FastaStats objects are equal iff their attributes are equal"
-        if type(other) is type(self):
-            return self.__dict__ == other.__dict__
-        return False
+# Match the 
+INFO_ALT_REGEX = re.compile(r"\w*(\[|\])(?P<chrom>\w+)\:(?P<pos>\d+)(\[|\]).*")
 
-    def __repr__(self):
-        "Generate a printable representation of a FastaStats object"
-        return "FastaStats(num_seqs={}, num_bases={}, min_len={}, max_len={}, " \
-            "average={})".format(
-                self.num_seqs, self.num_bases, self.min_len, self.max_len,
-                self.average)
+def parse_bnd(info_alt):
+    if len(info_alt) == 1:
+        first_alt = info_alt[0]
+    else:
+        exit_with_error("BND ALT field without exactly one entry: {}".format(info_alt),
+            EXIT_VCF_FILE_ERROR) 
+    match = INFO_ALT_REGEX.match(first_alt)
+    if match is not None:
+        return match.group('chrom'), match.group('pos')
+    else:
+        exit_with_error("Cannot parse coordinate from BND variant ALT field: {}".format(first_alt),
+            EXIT_VCF_FILE_ERROR) 
 
-    def from_file(self, fasta_file, minlen_threshold=DEFAULT_MIN_LEN):
-        '''Compute a FastaStats object from an input FASTA file.
-
-        Arguments:
-           fasta_file: an open file object for the FASTA file
-           minlen_threshold: the minimum length sequence to consider in
-              computing the statistics. Sequences in the input FASTA file
-              which have a length less than this value are ignored and not
-              considered in the resulting statistics.
-        Result:
-           A FastaStats object
-        '''
-        num_seqs = num_bases = 0
-        min_len = max_len = None
-        for seq in SeqIO.parse(fasta_file, "fasta"):
-            this_len = len(seq)
-            if this_len >= minlen_threshold:
-                if num_seqs == 0:
-                    min_len = max_len = this_len
-                else:
-                    min_len = min(this_len, min_len)
-                    max_len = max(this_len, max_len)
-                num_seqs += 1
-                num_bases += this_len
-        if num_seqs > 0:
-            self.average = int(floor(float(num_bases) / num_seqs))
+# Normalise the coordinates of an SV 
+class NormSV(object):
+    def __init__(self, var):
+        info = var.INFO
+        sv_type = info.get("SVTYPE", ".")
+        # VCF parser returns zero-based coordinate 
+        pos1 = var.start + 1
+        if sv_type == 'BND':
+            self.chrom1 = var.CHROM
+            self.pos1 = pos1 
+            self.chrom2, self.pos2 = parse_bnd(var.ALT)
         else:
-            self.average = None
-        self.num_seqs = num_seqs
-        self.num_bases = num_bases
-        self.min_len = min_len
-        self.max_len = max_len
-        return self
-
-    def pretty(self, filename):
-        '''Generate a pretty printable representation of a FastaStats object
-        suitable for output of the program. The output is a tab-delimited
-        string containing the filename of the input FASTA file followed by
-        the attributes of the object. If 0 sequences were read from the FASTA
-        file then num_seqs and num_bases are output as 0, and min_len, average
-        and max_len are output as a dash "-".
-
-        Arguments:
-           filename: the name of the input FASTA file
-        Result:
-           A string suitable for pretty printed output
-        '''
-        if self.num_seqs > 0:
-            num_seqs = str(self.num_seqs)
-            num_bases = str(self.num_bases)
-            min_len = str(self.min_len)
-            average = str(self.average)
-            max_len = str(self.max_len)
+            self.chrom1 = self.chrom2 = var.CHROM
+            self.pos1 = pos1 
+            self.pos2 = var.end
+        if self.chrom1 != self.chrom2:
+            self.type = "ITX" 
         else:
-            num_seqs = num_bases = "0"
-            min_len = average = max_len = "-"
-        return "\t".join([filename, num_seqs, num_bases, min_len, average,
-                          max_len])
+            self.type = "BND"
+
+
+
+# XXX check this
+def get_samples_with_variant(samples, genotypes):
+    return [sample for (sample, gt) in zip(samples, genotypes) if gt != 0]
+
+
+def process_variants(writer, qual_thresh, samples, vcf):
+    for var in vcf:
+        qual = var.QUAL
+        if qual >= qual_thresh:
+            samples_with_variant = get_samples_with_variant(samples, var.gt_types)
+            qual_str = "{:.2f}".format(qual)
+            norm = NormSV(var)
+            row = [norm.chrom1, norm.pos1, norm.chrom2, norm.pos2, qual_str, norm.type] + samples_with_variant 
+            writer.writerow(row)
 
 
 def process_files(options):
-    '''Compute and print FastaStats for each input FASTA file specified on the
-    command line. If no FASTA files are specified on the command line then
-    read from the standard input (stdin).
-
+    '''
     Arguments:
        options: the command line options of the program
     Result:
        None
     '''
-    if options.fasta_files:
-        for fasta_filename in options.fasta_files:
-            logging.info("Processing FASTA file from %s", fasta_filename)
-            try:
-                fasta_file = open(fasta_filename)
-            except IOError as exception:
-                exit_with_error(str(exception), EXIT_FILE_IO_ERROR)
-            else:
-                with fasta_file:
-                    stats = FastaStats().from_file(fasta_file, options.minlen)
-                    print(stats.pretty(fasta_filename))
-    else:
-        logging.info("Processing FASTA file from stdin")
-        stats = FastaStats().from_file(sys.stdin, options.minlen)
-        print(stats.pretty("stdin"))
+    writer = csv.writer(sys.stdout, delimiter="\t")
+    for vcf_filename in options.vcf_files:
+        logging.info("Processing VCF file from %s", vcf_filename)
+        vcf = VCF(vcf_filename)
+        samples = vcf.samples
+        process_variants(writer, options.qual, samples, vcf)
 
 
 def init_logging(log_filename):
@@ -227,7 +180,6 @@ def main():
     "Orchestrate the execution of the program"
     options = parse_args()
     init_logging(options.log)
-    print(HEADER)
     process_files(options)
 
 
