@@ -14,7 +14,9 @@ setup(
     packages=['svdistil'],
     package_dir={'svdistil': 'svdistil'},
     entry_points={
-        'console_scripts': ['svdistil = svdistil.svdistil:main']
+        'console_scripts': ['svdistil = svdistil.svdistil:main',
+            'svqualfilter = svdistil.svqualfilter:main'
+            ]
     },
     url='https://github.com/bjpop/svdistil',
     license='LICENSE',
