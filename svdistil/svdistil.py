@@ -15,6 +15,7 @@ import logging
 import pkg_resources
 import csv
 import re
+from functools import total_ordering
 from cyvcf2 import VCF
 
 
@@ -85,23 +86,98 @@ s ]p]t piece extending to the left of p is joined before t
 s [p[t reverse comp piece extending right of p is joined before t
 '''
 
-# Match the 
-INFO_ALT_REGEX = re.compile(r"\w*(\[|\])(?P<chrom>\w+)\:(?P<pos>\d+)(\[|\]).*")
+# t[p[, bp1 is right of pos1, bp2 is left of pos2 
+INFO_ALT_REGEX_1 = re.compile(r"(?P<replacement>\w+)\[(?P<chrom>\w+)\:(?P<pos>\d+)\[")
+# t]p], bp1 is right of pos1, bp2 is right of pos2
+INFO_ALT_REGEX_2 = re.compile(r"(?P<replacement>\w+)\](?P<chrom>\w+)\:(?P<pos>\d+)\]")
+# ]p]t, bp1 is left of pos1, bp2 is right of pos2
+INFO_ALT_REGEX_3 = re.compile(r"\](?P<chrom>\w+)\:(?P<pos>\d+)\](?P<replacement>\w+)")
+# [p[t, bp1 is left of pos1, bp2 is left of pos2
+INFO_ALT_REGEX_4 = re.compile(r"\[(?P<chrom>\w+)\:(?P<pos>\d+)\[(?P<replacement>\w+)")
 
+# XXX handle multiple ALTs
 def parse_bnd(info_alt):
     if len(info_alt) == 1:
         first_alt = info_alt[0]
     else:
         exit_with_error("BND ALT field without exactly one entry: {}".format(info_alt),
             EXIT_VCF_FILE_ERROR) 
-    match = INFO_ALT_REGEX.match(first_alt)
-    if match is not None:
-        return match.group('chrom'), match.group('pos')
+    match1 = INFO_ALT_REGEX_1.match(first_alt)
+    match2 = INFO_ALT_REGEX_2.match(first_alt)
+    match3 = INFO_ALT_REGEX_3.match(first_alt)
+    match4 = INFO_ALT_REGEX_4.match(first_alt)
+    if match1 is not None:
+        return match1.group('chrom'), int(match1.group('pos')), match1.group('replacement'), "R", "L"
+    elif match2 is not None:
+        return match2.group('chrom'), int(match2.group('pos')), match2.group('replacement'), "R", "R"
+    elif match3 is not None:
+        return match3.group('chrom'), int(match3.group('pos')), match3.group('replacement'), "L", "R"
+    elif match4 is not None:
+        return match4.group('chrom'), int(match4.group('pos')), match4.group('replacement'), "L", "L"
     else:
         exit_with_error("Cannot parse coordinate from BND variant ALT field: {}".format(first_alt),
             EXIT_VCF_FILE_ERROR) 
 
+@total_ordering
+class Chrom(object):
+    def __init__(self, name):
+        if name.startswith('chr'):
+            self.name = name[3:]
+        else:
+            self.name = name
+        if len(self.name) == 0:
+            exit_with_error("Empty chromosome name", EXIT_VCF_FILE_ERROR)
+    def __eq__(self, other):
+        return self.name == other.name
+    def to_num(self):
+        if self.name == 'X':
+            return 23
+        elif self.name == 'Y':
+            return 24
+        elif self.name == 'M':
+            return 25
+        else:
+            return int(self.name)
+    def __lt__(self, other):
+        return self.to_num() < other.to_num()
+    def __str__(self):
+        return "chr" + self.name 
+    def __hash__(self):
+        return hash(self.name)
+
+
+# breakside indicates the side L|R of the position in which the breakpoint occurs,
+# when using the + strand orientation.
+#
+#       DNA
+#       --------X   breakpoint occurs on the right of X
+#
+#                   DNA
+#               X-------- breakpoint occurs on the left of X
+#
+# we drop the chr from the start of chrom names
+
+@total_ordering
+class BreakEnd(object):
+    def __init__(self, chrom, pos, breakside):
+        self.chrom = Chrom(chrom)
+        self.pos = pos
+        self.breakside = breakside
+    def __eq__(self, other):
+        return (self.chrom, self.pos, self.breakside) == \
+               (other.chrom, other.pos, other.breakside) 
+    def __lt__(self, other):
+        return (self.chrom, self.pos, self.breakside) < \
+               (other.chrom, other.pos, other.breakside) 
+
 # Normalise the coordinates of an SV 
+#
+# bnd_low: is the "lowest" of the 2 breakends.
+#    - if they are on the same chrom, then it is the one with the least position
+#    - if they are on different chroms, then it is the one with the lowest chrom
+# bnd_high: is correspondingly the "highest" of the 2 breakends. 
+#
+# replacement: is an inserted sequence, if present
 class NormSV(object):
     def __init__(self, var):
         info = var.INFO
@@ -109,18 +185,14 @@ class NormSV(object):
         # VCF parser returns zero-based coordinate 
         pos1 = var.start + 1
         if sv_type == 'BND':
-            self.chrom1 = var.CHROM
-            self.pos1 = pos1 
-            self.chrom2, self.pos2 = parse_bnd(var.ALT)
+            bnd2_chrom, bnd2_pos, replacement, breakside1, breakside2 = parse_bnd(var.ALT)
+            bnd1 = BreakEnd(var.CHROM, pos1, breakside1)
+            bnd2 = BreakEnd(bnd2_chrom, bnd2_pos, breakside2)
+            self.bnd_low = min(bnd1, bnd2)
+            self.bnd_high = max(bnd1, bnd2)
+            self.replacement = replacement
         else:
-            self.chrom1 = self.chrom2 = var.CHROM
-            self.pos1 = pos1 
-            self.pos2 = var.end
-        if self.chrom1 != self.chrom2:
-            self.type = "ITX" 
-        else:
-            self.type = "BND"
-
+            exit_with_error("Unsupported SVTYPE: {}".format(var), EXIT_VCF_FILE_ERROR)
 
 
 # XXX check this
@@ -128,15 +200,25 @@ def get_samples_with_variant(samples, genotypes):
     return [sample for (sample, gt) in zip(samples, genotypes) if gt != 0]
 
 
-def process_variants(writer, qual_thresh, samples, vcf):
+def keep_variant(qual_thresh, var):
+    return var.QUAL >= qual_thresh
+
+
+def process_variants(qual_thresh, samples, vcf):
+    results = set()
     for var in vcf:
         qual = var.QUAL
-        if qual >= qual_thresh:
+        if keep_variant(qual_thresh, var):
             samples_with_variant = get_samples_with_variant(samples, var.gt_types)
             qual_str = "{:.2f}".format(qual)
             norm = NormSV(var)
-            row = [norm.chrom1, norm.pos1, norm.chrom2, norm.pos2, qual_str, norm.type] + samples_with_variant 
-            writer.writerow(row)
+            bnd_low = norm.bnd_low
+            bnd_high = norm.bnd_high
+            samples_str = ";".join(samples_with_variant)
+            new_row = (bnd_low.chrom, bnd_low.pos, bnd_high.chrom, bnd_high.pos,
+                       bnd_low.breakside, bnd_high.breakside, qual_str, samples_str)
+            results.add(new_row)
+    return sorted(set(results))
 
 
 def process_files(options):
@@ -146,12 +228,15 @@ def process_files(options):
     Result:
        None
     '''
-    writer = csv.writer(sys.stdout, delimiter="\t")
     for vcf_filename in options.vcf_files:
         logging.info("Processing VCF file from %s", vcf_filename)
         vcf = VCF(vcf_filename)
         samples = vcf.samples
-        process_variants(writer, options.qual, samples, vcf)
+        results = process_variants(options.qual, samples, vcf)
+    writer = csv.writer(sys.stdout, delimiter="\t")
+    for row in results:
+        writer.writerow(row)
+
 
 
 def init_logging(log_filename):
