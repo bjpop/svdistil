@@ -15,12 +15,13 @@ setup(
     package_dir={'svdistil': 'svdistil'},
     entry_points={
         'console_scripts': ['svdistil = svdistil.svdistil:main',
-            'svqualfilter = svdistil.svqualfilter:main'
+            'svqualfilter = svdistil.svqualfilter:main',
+            'svmerge = svdistil.svmerge:main'
             ]
     },
     url='https://github.com/bjpop/svdistil',
     license='LICENSE',
     description=('Convert DNA structural variants in VCF files into BED format'),
     long_description=(LONG_DESCRIPTION),
-    install_requires=["cyvcf2"],
+    install_requires=["cyvcf2", "networkx", "intervaltree"],
 )
