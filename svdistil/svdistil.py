@@ -216,7 +216,7 @@ def process_variants(qual_thresh, samples, vcf):
             bnd_high = norm.bnd_high
             samples_str = ";".join(samples_with_variant)
             new_row = (bnd_low.chrom, bnd_low.pos, bnd_high.chrom, bnd_high.pos,
-                       bnd_low.breakside, bnd_high.breakside, qual_str, samples_str)
+                       bnd_low.breakside, bnd_high.breakside, len(norm.replacement), qual_str, samples_str)
             results.add(new_row)
     return sorted(set(results))
 
@@ -234,6 +234,8 @@ def process_files(options):
         samples = vcf.samples
         results = process_variants(options.qual, samples, vcf)
     writer = csv.writer(sys.stdout, delimiter="\t")
+    header = ["chr1", "pos1", "chr2", "pos2", "sense1", "sense2", "insertlen", "qual", "sample"]
+    writer.writerow(header)
     for row in results:
         writer.writerow(row)
 
