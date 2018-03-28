@@ -150,14 +150,13 @@ def get_intersections(variants, intervals_low, intervals_high):
         overlaps.add_node(variant_id)
         chrom1 = variant_info['chr1']
         pos1 = int(variant_info['pos1'])
-        intersections1 = intervals_low.lookup(chrom1, pos1)
+        intersections1 = { i.data for i in intervals_low.lookup(chrom1, pos1) }
         chrom2 = variant_info['chr2']
         pos2 = int(variant_info['pos2'])
-        intersections2 = intervals_high.lookup(chrom2, pos2)
+        intersections2 = { i.data for i in intervals_high.lookup(chrom2, pos2) }
         overlaps_both_ends = intersections1.intersection(intersections2)
-        for overlapping_variant in overlaps_both_ends:
+        for overlapping_variant_id in overlaps_both_ends:
             # don't add self edges
-            overlapping_variant_id = overlapping_variant.data
             if variant_id != overlapping_variant_id:
                 overlapping_variant_info = variants[overlapping_variant_id]
                 if (variant_info['sense1'] == overlapping_variant_info['sense1']) and \
