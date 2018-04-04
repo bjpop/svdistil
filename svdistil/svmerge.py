@@ -101,25 +101,17 @@ class Variants(object):
         self.count += 1
 
 
-def read_variants(variants, filename):
-    with open(filename) as file:
-        reader = csv.DictReader(file, delimiter="\t")
-        for row in reader:
-            variants.add(row)
-
-
 def read_tsv_files(options):
-    '''
-    Arguments:
-       options: the command line options of the program
-    Result:
-       None
-    '''
+    sample_ids = set()
     variants = Variants()
     for tsv_filename in options.tsv_files:
         logging.info("Processing TSV file from %s", tsv_filename)
-        read_variants(variants, tsv_filename)
-    return variants
+        with open(tsv_filename) as file:
+            reader = csv.DictReader(file, delimiter="\t")
+            for row in reader:
+                variants.add(row)
+                sample_ids.add(row['sample'])
+    return sample_ids, variants
 
 
 def bnd_intervals(window, variants):
@@ -172,9 +164,11 @@ def list_median(items):
 def average(items):
     return (sum(items) / len(items))
 
-def merge_overlaps(variants, overlaps):
+def merge_overlaps(sample_ids, variants, overlaps):
     writer = csv.writer(sys.stdout, delimiter="\t")
-    header = ["chr1", "pos1", "chr2", "pos2", "sense1", "sense2", "qual", "num samples", "samples"]
+    # header = ["chr1", "pos1", "chr2", "pos2", "sense1", "sense2", "qual", "num samples", "samples"]
+    sample_list = sorted(sample_ids)
+    header = ["chr1", "pos1", "chr2", "pos2", "sense1", "sense2", "qual", "num samples"] + sample_list 
     writer.writerow(header)
     for component in nx.connected_components(overlaps):
         if len(component) > 0:
@@ -187,8 +181,9 @@ def merge_overlaps(variants, overlaps):
             pos1 = list_median([info['pos1'] for info in variant_infos])
             pos2 = list_median([info['pos2'] for info in variant_infos])
             qual = average([float(info['qual']) for info in variant_infos]) 
-            samples = ";".join([info['sample'] for info in variant_infos])
-            writer.writerow([chrom1, pos1, chrom2, pos2, sense1, sense2, qual, len(component), samples]) 
+            positive_samples = set([info['sample'] for info in variant_infos])
+            sample_columns = ['1' if s in positive_samples else '0' for s in sample_list]
+            writer.writerow([chrom1, pos1, chrom2, pos2, sense1, sense2, qual, len(positive_samples)] + sample_columns) 
 
 
 def init_logging(log_filename):
@@ -217,10 +212,10 @@ def main():
     "Orchestrate the execution of the program"
     options = parse_args()
     init_logging(options.log)
-    variants = read_tsv_files(options)
+    sample_ids, variants = read_tsv_files(options)
     intervals_low, intervals_high = bnd_intervals(options.window, variants.variants)
     overlaps = get_intersections(variants.variants, intervals_low, intervals_high)
-    merge_overlaps(variants.variants, overlaps)
+    merge_overlaps(sample_ids, variants.variants, overlaps)
 
 
 # If this script is run from the command line then call the main function.
