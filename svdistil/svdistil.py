@@ -228,16 +228,16 @@ def process_files(options):
     Result:
        None
     '''
+    writer = csv.writer(sys.stdout, delimiter="\t")
+    header = ["chr1", "pos1", "chr2", "pos2", "sense1", "sense2", "insertlen", "qual", "sample"]
+    writer.writerow(header)
     for vcf_filename in options.vcf_files:
         logging.info("Processing VCF file from %s", vcf_filename)
         vcf = VCF(vcf_filename)
         samples = vcf.samples
         results = process_variants(options.qual, samples, vcf)
-    writer = csv.writer(sys.stdout, delimiter="\t")
-    header = ["chr1", "pos1", "chr2", "pos2", "sense1", "sense2", "insertlen", "qual", "sample"]
-    writer.writerow(header)
-    for row in results:
-        writer.writerow(row)
+        for row in results:
+            writer.writerow(row)
 
 
 
