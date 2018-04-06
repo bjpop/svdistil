@@ -23,7 +23,6 @@ EXIT_FILE_IO_ERROR = 1
 EXIT_COMMAND_LINE_ERROR = 2
 EXIT_VCF_FILE_ERROR = 3
 DEFAULT_VERBOSE = False
-DEFAULT_MIN_QUAL_THRESHOLD = 0.0
 PROGRAM_NAME = "svdistil"
 
 
@@ -64,8 +63,10 @@ def parse_args():
     parser.add_argument('--qual',
                         metavar='MIN_QUAL_THRESHOLD',
                         type=float,
-                        default=DEFAULT_MIN_QUAL_THRESHOLD,
                         help='minimum QUAL threshold, variants below this will be discarded')
+    parser.add_argument('--ispass',
+                        action='store_true',
+                        help='only keep variants whose filter field is PASS')
     parser.add_argument('vcf_files',
                         nargs='*',
                         metavar='VCF_FILE',
@@ -191,8 +192,16 @@ class NormSV(object):
             self.bnd_low = min(bnd1, bnd2)
             self.bnd_high = max(bnd1, bnd2)
             self.replacement = replacement
+        # the following are all on the same chrom
+        elif sv_type in ['DEL', 'INV', 'DUP', 'INS'] :
+            bnd1 = BreakEnd(var.CHROM, var.start, '.')
+            end = int(info["END"])
+            bnd2 = BreakEnd(var.CHROM, end, '.')
+            self.bnd_low = min(bnd1, bnd2)
+            self.bnd_high = max(bnd1, bnd2)
+            self.replacement = ''
         else:
-            exit_with_error("Unsupported SVTYPE: {}".format(var), EXIT_VCF_FILE_ERROR)
+            exit_with_error("Unsupported SVTYPE: {}".format(sv_type), EXIT_VCF_FILE_ERROR)
 
 
 # XXX check this
@@ -200,17 +209,35 @@ def get_samples_with_variant(samples, genotypes):
     return [sample for (sample, gt) in zip(samples, genotypes) if gt != 0]
 
 
-def keep_variant(qual_thresh, var):
-    return var.QUAL >= qual_thresh
+def keep_variant(qual_thresh, filter_pass, var):
+    passes_qual_thresh = False
+    passes_filter = False
+
+    if qual_thresh is None:
+        passes_qual_thresh = True
+    elif var.QUAL is None:
+        passes_qual_thresh = qual_thresh == 0 
+    else:
+        passes_qual_thresh = var.QUAL >= qual_thresh
+
+    if filter_pass:
+        passes_filter = var.FILTER is None
+    else:
+        passes_filter = True
+
+    return passes_qual_thresh and passes_filter
 
 
-def process_variants(qual_thresh, samples, vcf):
+def process_variants(qual_thresh, filter_pass, samples, vcf):
     results = set()
     for var in vcf:
         qual = var.QUAL
-        if keep_variant(qual_thresh, var):
-            samples_with_variant = get_samples_with_variant(samples, var.gt_types)
-            qual_str = "{:.2f}".format(qual)
+        samples_with_variant = get_samples_with_variant(samples, var.gt_types)
+        if keep_variant(qual_thresh, filter_pass, var) and len(samples_with_variant) > 0:
+            if qual is not None:
+                qual_str = "{:.2f}".format(qual)
+            else:
+                qual_str = "."
             norm = NormSV(var)
             bnd_low = norm.bnd_low
             bnd_high = norm.bnd_high
@@ -235,7 +262,7 @@ def process_files(options):
         logging.info("Processing VCF file from %s", vcf_filename)
         vcf = VCF(vcf_filename)
         samples = vcf.samples
-        results = process_variants(options.qual, samples, vcf)
+        results = process_variants(options.qual, options.ispass, samples, vcf)
         for row in results:
             writer.writerow(row)
 
