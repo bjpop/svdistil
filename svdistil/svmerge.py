@@ -16,6 +16,8 @@ import pkg_resources
 import csv
 from intervaltree import Interval, IntervalTree
 import networkx as nx
+from pathlib import Path
+from copy import copy
 
 
 EXIT_FILE_IO_ERROR = 1
@@ -101,20 +103,38 @@ class Variants(object):
         self.count += 1
 
 
+def get_caller_name(filepath):
+    path = Path(filepath)
+    filename = path.name
+    fields = filename.split('.')
+    if len(fields) > 0:
+        return fields[0]
+    else:
+        return filename
+
 def read_tsv_files(options):
     sample_ids = set()
+    callers = set()
     variants = Variants()
     for tsv_filename in options.tsv_files:
         logging.info("Processing TSV file from %s", tsv_filename)
+        variant_caller = get_caller_name(tsv_filename)
+        callers.add(variant_caller)
         with open(tsv_filename) as file:
             reader = csv.DictReader(file, delimiter="\t")
             for row in reader:
-                variants.add(row)
-                sample_ids.add(row['sample'])
-    return sample_ids, variants
+                samples = row['sample'].split(';')
+                for sample in samples:
+                    new_row = copy(row)
+                    new_row['caller'] = variant_caller
+                    new_row['sample'] = sample
+                    variants.add(new_row)
+                    sample_ids.add(sample)
+    return callers, sample_ids, variants
 
 
 def bnd_intervals(window, variants):
+    logging.info("Computing break end intervals with window size: {}".format(window))
     window_left = window // 2
     window_right = window - window_left
     intervals_low = BndIntervals()
@@ -136,6 +156,7 @@ def bnd_intervals(window, variants):
 
 
 def get_intersections(variants, intervals_low, intervals_high):
+    logging.info("Computing variant intersections")
     overlaps = nx.Graph() 
     for variant_id, variant_info in variants.items():
         # make sure all variants are recorded in the graph
@@ -151,9 +172,12 @@ def get_intersections(variants, intervals_low, intervals_high):
             # don't add self edges
             if variant_id != overlapping_variant_id:
                 overlapping_variant_info = variants[overlapping_variant_id]
+                overlaps.add_edge(variant_id, overlapping_variant_id)
+                '''
                 if (variant_info['sense1'] == overlapping_variant_info['sense1']) and \
                    (variant_info['sense2'] == overlapping_variant_info['sense2']):
                     overlaps.add_edge(variant_id, overlapping_variant_id)
+                '''
     return overlaps
 
 
@@ -164,11 +188,43 @@ def list_median(items):
 def average(items):
     return (sum(items) / len(items))
 
-def merge_overlaps(sample_ids, variants, overlaps):
+def build_evidence(variants, callers, samples):
+    # evidence: mapping, sample -> set(caller)
+    num_positive_samples = 0
+    num_positive_calls = 0
+    evidence = {}
+    for var in variants:
+        this_sample = var['sample']
+        this_caller = var['caller']
+        if this_sample not in evidence:
+            evidence[this_sample] = set()
+        evidence[this_sample].add(this_caller)
+    results = []
+    for sample in samples:
+        if sample in evidence:
+            num_positive_samples += 1
+            positive_callers = evidence[sample]
+            num_calls = len(positive_callers)
+            num_positive_calls += num_calls
+            caller_hits = []
+            for caller in callers:
+                if caller in positive_callers:
+                    caller_hits.append(1)
+                else:
+                    caller_hits.append(0)
+            results.extend([num_calls] + caller_hits)
+        else:
+            results.extend([0] + [0 for _ in callers])
+    return num_positive_samples, num_positive_calls, results
+
+
+def merge_overlaps(callers, sample_ids, variants, overlaps):
+    logging.info("Merging overlapping variants")
     writer = csv.writer(sys.stdout, delimiter="\t")
-    # header = ["chr1", "pos1", "chr2", "pos2", "sense1", "sense2", "qual", "num samples", "samples"]
-    sample_list = sorted(sample_ids)
-    header = ["chr1", "pos1", "chr2", "pos2", "sense1", "sense2", "qual", "num samples"] + sample_list 
+    sorted_samples = sorted(sample_ids)
+    sorted_callers = sorted(callers)
+    sample_headers = [s + " " + f for s in sorted_samples for f in ["count"] + sorted_callers]
+    header = ["chr1", "pos1", "chr2", "pos2", "num samples", "avg pos calls"] + sample_headers 
     writer.writerow(header)
     for component in nx.connected_components(overlaps):
         if len(component) > 0:
@@ -176,14 +232,11 @@ def merge_overlaps(sample_ids, variants, overlaps):
             first_info = variant_infos[0]
             chrom1 = first_info['chr1']
             chrom2 = first_info['chr2']
-            sense1 = first_info['sense1']
-            sense2 = first_info['sense2']
             pos1 = list_median([info['pos1'] for info in variant_infos])
             pos2 = list_median([info['pos2'] for info in variant_infos])
-            qual = average([float(info['qual']) for info in variant_infos]) 
-            positive_samples = set([info['sample'] for info in variant_infos])
-            sample_columns = ['1' if s in positive_samples else '0' for s in sample_list]
-            writer.writerow([chrom1, pos1, chrom2, pos2, sense1, sense2, qual, len(positive_samples)] + sample_columns) 
+            num_positive_samples, num_positive_calls, evidence = build_evidence(variant_infos, sorted_callers, sorted_samples)
+            avg_positive_calls = float(num_positive_calls) / num_positive_samples
+            writer.writerow([chrom1, pos1, chrom2, pos2, num_positive_samples, avg_positive_calls] + evidence) 
 
 
 def init_logging(log_filename):
@@ -204,7 +257,7 @@ def init_logging(log_filename):
                             filemode='w',
                             format='%(asctime)s %(levelname)s - %(message)s',
                             datefmt='%m-%d-%Y %H:%M:%S')
-        logging.info('program started')
+        logging.info('computation started')
         logging.info('command line: %s', ' '.join(sys.argv))
 
 
@@ -212,10 +265,11 @@ def main():
     "Orchestrate the execution of the program"
     options = parse_args()
     init_logging(options.log)
-    sample_ids, variants = read_tsv_files(options)
+    callers, sample_ids, variants = read_tsv_files(options)
     intervals_low, intervals_high = bnd_intervals(options.window, variants.variants)
     overlaps = get_intersections(variants.variants, intervals_low, intervals_high)
-    merge_overlaps(sample_ids, variants.variants, overlaps)
+    merge_overlaps(callers, sample_ids, variants.variants, overlaps)
+    logging.info("computation ended")
 
 
 # If this script is run from the command line then call the main function.
