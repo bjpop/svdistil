@@ -16,7 +16,8 @@ setup(
     entry_points={
         'console_scripts': ['svdistil = svdistil.svdistil:main',
             'svqualfilter = svdistil.svqualfilter:main',
-            'svmerge = svdistil.svmerge:main'
+            'svmerge = svdistil.svmerge:main',
+            'svannotate = svdistil.svannotate:main',
             ]
     },
     url='https://github.com/bjpop/svdistil',

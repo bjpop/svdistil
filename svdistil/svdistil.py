@@ -130,17 +130,8 @@ class Chrom(object):
             exit_with_error("Empty chromosome name", EXIT_VCF_FILE_ERROR)
     def __eq__(self, other):
         return self.name == other.name
-    def to_num(self):
-        if self.name == 'X':
-            return 23
-        elif self.name == 'Y':
-            return 24
-        elif self.name == 'M':
-            return 25
-        else:
-            return int(self.name)
     def __lt__(self, other):
-        return self.to_num() < other.to_num()
+        return self.name < other.name
     def __str__(self):
         return "chr" + self.name 
     def __hash__(self):
