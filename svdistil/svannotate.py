@@ -24,6 +24,8 @@ EXIT_COMMAND_LINE_ERROR = 2
 EXIT_TSV_FILE_ERROR = 3
 DEFAULT_VERBOSE = False
 DEFAULT_WINDOW = 50
+# padding on either side of gene coordinates
+DEFAULT_PAD = 2000
 PROGRAM_NAME = "svannotate"
 
 
@@ -66,6 +68,11 @@ def parse_args():
                         required=True,
                         type=str,
                         help='annotation file')
+    parser.add_argument('--pad',
+                        metavar='PAD',
+                        default=DEFAULT_PAD,
+                        type=int,
+                        help='number of bases of padding on either side of gene, default: {}'.format(DEFAULT_PAD))
     parser.add_argument('--window',
                         metavar='WINDOW',
                         default=DEFAULT_WINDOW,
@@ -95,7 +102,7 @@ class AnnIntervals(object):
             return set()
 
 
-def read_annotations(annotations_file):
+def read_annotations(pad, annotations_file):
     intervals = AnnIntervals()
     tiers = set()
     with open(annotations_file) as file:
@@ -104,7 +111,9 @@ def read_annotations(annotations_file):
             this_tier = int(row['tier'])
             tiers.add(this_tier)
             val = (row['gene'], this_tier)
-            intervals.add(row['chrom'], int(row['start']), int(row['end']), val)
+            this_start = int(row['start']) - pad 
+            this_end = int(row['end']) + pad
+            intervals.add(row['chrom'], this_start, this_end, val)
     return tiers, intervals
 
 
@@ -173,7 +182,7 @@ def main():
     "Orchestrate the execution of the program"
     options = parse_args()
     init_logging(options.log)
-    tiers, annotations = read_annotations(options.annotations)
+    tiers, annotations = read_annotations(options.pad, options.annotations)
     annotate_variants(options.window, tiers, annotations, options.tsv_file)
 
 
