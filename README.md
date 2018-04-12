@@ -34,9 +34,23 @@ Svdistil can be installed using `pip` in a variety of ways (`%` indicates the co
 # Usage 
 
 
+Get help on the command line arguments:
 ```
 % svdistil -h
 ```
+
+Distil all the SV varaint calls for a given cohort and a given variant calling tool. For example, if you used three variant callers, such as lumpy, delly and GRIDSS, and had named your VCF files to include the caller name
+```
+svdistil --ispass *.gridss.vcf > gridds.distil.tsv
+svdistil --ispass *.lumpy.vcf > lumpy.distil.tsv
+svdistil --ispass *.delly.vcf > delly.distil.tsv
+```
+
+Then merge all calls together:
+```
+svmerge *.distil.tsv > merged.tsv
+```
+
 
 
 ## Logging
