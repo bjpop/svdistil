@@ -117,7 +117,7 @@ def read_tsv_files(options):
     callers = set()
     variants = Variants()
     for tsv_filename in options.tsv_files:
-        logging.info("Processing TSV file from %s", tsv_filename)
+        logging.info("Processing TSV file from %s...", tsv_filename)
         variant_caller = get_caller_name(tsv_filename)
         callers.add(variant_caller)
         with open(tsv_filename) as file:
@@ -130,16 +130,17 @@ def read_tsv_files(options):
                     new_row['sample'] = sample
                     variants.add(new_row)
                     sample_ids.add(sample)
+        logging.info("Processing TSV file from %s: done", tsv_filename)
     return callers, sample_ids, variants
 
 
 def bnd_intervals(window, variants):
-    logging.info("Computing break end intervals with window size: {}".format(window))
+    logging.info("Computing %i break end intervals with window size: %i...", len(variants), window)
     window_left = window // 2
     window_right = window - window_left
     intervals_low = BndIntervals()
     intervals_high = BndIntervals()
-    for variant_id, variant_info in variants.items():
+    for idx, (variant_id, variant_info) in enumerate(variants.items()):
         chrom1 = variant_info['chr1']
         pos1 = int(variant_info['pos1'])
         # make sure interval pos is not negative
@@ -152,13 +153,16 @@ def bnd_intervals(window, variants):
         interval2_start = max(0, pos2 - window_left)
         interval2_end = pos2 + window_right
         intervals_high.add(chrom2, interval2_start, interval2_end, variant_id)
+        if (idx + 1) % 100000 == 0:
+            logging.info('Computing %i break end intervals: %i done', len(variants), idx + 1)
+    logging.info("Computing %i break end intervals with window size: %i: done", len(variants), window)
     return intervals_low, intervals_high
 
 
 def get_intersections(variants, intervals_low, intervals_high):
-    logging.info("Computing variant intersections")
+    logging.info("Computing %i variant intersections...", len(variants))
     overlaps = nx.Graph() 
-    for variant_id, variant_info in variants.items():
+    for idx, (variant_id, variant_info) in enumerate(variants.items()):
         # make sure all variants are recorded in the graph
         overlaps.add_node(variant_id)
         chrom1 = variant_info['chr1']
@@ -178,6 +182,9 @@ def get_intersections(variants, intervals_low, intervals_high):
                    (variant_info['sense2'] == overlapping_variant_info['sense2']):
                     overlaps.add_edge(variant_id, overlapping_variant_id)
                 '''
+        if (idx + 1) % 100000 == 0:
+          logging.info("Computing %i variant intersections: %i done", len(variants), idx + 1)
+    logging.info("Computing %i variant intersections: done", len(variants))
     return overlaps
 
 
@@ -219,7 +226,7 @@ def build_evidence(variants, callers, samples):
 
 
 def merge_overlaps(callers, sample_ids, variants, overlaps):
-    logging.info("Merging overlapping variants")
+    logging.info("Merging overlapping variants...")
     writer = csv.writer(sys.stdout, delimiter="\t")
     sorted_samples = sorted(sample_ids)
     sorted_callers = sorted(callers)
@@ -237,6 +244,7 @@ def merge_overlaps(callers, sample_ids, variants, overlaps):
             num_positive_samples, num_positive_calls, evidence = build_evidence(variant_infos, sorted_callers, sorted_samples)
             avg_positive_calls = float(num_positive_calls) / num_positive_samples
             writer.writerow([chrom1, pos1, chrom2, pos2, num_positive_samples, avg_positive_calls] + evidence) 
+    logging.info("Merging overlapping variants: done")
 
 
 def init_logging(log_filename):
@@ -251,14 +259,18 @@ def init_logging(log_filename):
     Result:
         None
     '''
-    if log_filename is not None:
+    if log_filename is None:
+        logging.basicConfig(level=logging.DEBUG,
+                            format='%(asctime)s %(levelname)s - %(message)s',
+                            datefmt='%m-%d-%Y %H:%M:%S')
+    else:
         logging.basicConfig(filename=log_filename,
                             level=logging.DEBUG,
                             filemode='w',
                             format='%(asctime)s %(levelname)s - %(message)s',
                             datefmt='%m-%d-%Y %H:%M:%S')
-        logging.info('computation started')
-        logging.info('command line: %s', ' '.join(sys.argv))
+    logging.info('computation started')
+    logging.info('command line: %s', ' '.join(sys.argv))
 
 
 def main():
