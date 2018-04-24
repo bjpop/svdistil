@@ -177,11 +177,6 @@ def get_intersections(variants, intervals_low, intervals_high):
             if variant_id != overlapping_variant_id:
                 overlapping_variant_info = variants[overlapping_variant_id]
                 overlaps.add_edge(variant_id, overlapping_variant_id)
-                '''
-                if (variant_info['sense1'] == overlapping_variant_info['sense1']) and \
-                   (variant_info['sense2'] == overlapping_variant_info['sense2']):
-                    overlaps.add_edge(variant_id, overlapping_variant_id)
-                '''
         if (idx + 1) % 100000 == 0:
           logging.info("Computing %i variant intersections: %i done", len(variants), idx + 1)
     logging.info("Computing %i variant intersections: done", len(variants))
