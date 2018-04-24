@@ -14,7 +14,7 @@ import sys
 import logging
 import pkg_resources
 import csv
-from intervaltree import Interval, IntervalTree
+from quicksect import IntervalTree
 import networkx as nx
 from pathlib import Path
 from copy import copy
@@ -83,13 +83,13 @@ class BndIntervals(object):
         if chrom not in self.chroms:
             self.chroms[chrom] = IntervalTree()
         tree = self.chroms[chrom]
-        tree[start:end] = val
+        tree.add(start, end, val)
 
     def lookup(self, chrom, pos):
         if chrom in self.chroms:
-            return self.chroms[chrom][pos]
+            return self.chroms[chrom].search(pos, pos)
         else:
-            return set()
+            return [] 
 
 
 # mapping from unique integer (count) to variant record

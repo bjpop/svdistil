@@ -25,5 +25,5 @@ setup(
     license='LICENSE',
     description=('Convert DNA structural variants in VCF files into BED format'),
     long_description=(LONG_DESCRIPTION),
-    install_requires=["cyvcf2", "networkx", "intervaltree"],
+    install_requires=["cyvcf2", "networkx", "quicksect"],
 )
