@@ -14,7 +14,7 @@ import sys
 import logging
 import pkg_resources
 import csv
-from intervaltree import Interval, IntervalTree
+from quicksect import IntervalTree
 from pathlib import Path
 from copy import copy
 
@@ -93,13 +93,14 @@ class AnnIntervals(object):
         if chrom not in self.chroms:
             self.chroms[chrom] = IntervalTree()
         tree = self.chroms[chrom]
-        tree[start:end] = val
+        #tree[start:end] = val
+        tree.add(start, end, val)
 
     def lookup(self, chrom, start, end):
         if chrom in self.chroms:
-            return self.chroms[chrom][start:end+1]
+            return self.chroms[chrom].search(start, end)
         else:
-            return set()
+            return [] 
 
 
 def read_annotations(pad, annotations_file):
@@ -144,15 +145,15 @@ def annotate_variants(window, tiers, annotations, variants_filename):
             chr2 = row['chr2']
             pos2 = int(row['pos2'])
             if chr1 == chr2:
-                intersections = annotations.lookup(chr1, pos1, pos2)
+                intersections = set(annotations.lookup(chr1, pos1, pos2))
                 print_variant(sorted_tiers, fieldnames, row, intersections)
             else:
                 pos1_low = max(0, pos1 - half_window)
                 pos1_high = pos1 + (half_window - 1)
-                intersections1 = annotations.lookup(chr1, pos1_low, pos1_high)
+                intersections1 = set(annotations.lookup(chr1, pos1_low, pos1_high))
                 pos2_low = max(0, pos2 - half_window)
                 pos2_high = pos2 + (half_window - 1) 
-                intersections2 = annotations.lookup(chr2, pos2_low, pos2_high)
+                intersections2 = set(annotations.lookup(chr2, pos2_low, pos2_high))
                 print_variant(sorted_tiers, fieldnames, row, intersections1.union(intersections2))
 
 
