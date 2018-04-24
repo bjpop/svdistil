@@ -18,6 +18,7 @@ setup(
             'svqualfilter = svdistil.svqualfilter:main',
             'svmerge = svdistil.svmerge:main',
             'svannotate = svdistil.svannotate:main',
+            'snvdistil = svdistil.snvdistil:main',
             ]
     },
     url='https://github.com/bjpop/svdistil',
