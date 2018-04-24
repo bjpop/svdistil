@@ -14,7 +14,8 @@ import sys
 import logging
 import pkg_resources
 import csv
-from intervaltree import Interval, IntervalTree
+#from intervaltree import Interval, IntervalTree
+from quicksect import IntervalTree
 import networkx as nx
 from pathlib import Path
 from copy import copy
@@ -83,11 +84,13 @@ class BndIntervals(object):
         if chrom not in self.chroms:
             self.chroms[chrom] = IntervalTree()
         tree = self.chroms[chrom]
-        tree[start:end] = val
+        #tree[start:end] = val
+        tree.add(start, end-1, val)
 
     def lookup(self, chrom, pos):
         if chrom in self.chroms:
-            return self.chroms[chrom][pos]
+            #return self.chroms[chrom][pos]
+            return self.chroms[chrom].search(pos, pos)
         else:
             return set()
 
@@ -177,11 +180,6 @@ def get_intersections(variants, intervals_low, intervals_high):
             if variant_id != overlapping_variant_id:
                 overlapping_variant_info = variants[overlapping_variant_id]
                 overlaps.add_edge(variant_id, overlapping_variant_id)
-                '''
-                if (variant_info['sense1'] == overlapping_variant_info['sense1']) and \
-                   (variant_info['sense2'] == overlapping_variant_info['sense2']):
-                    overlaps.add_edge(variant_id, overlapping_variant_id)
-                '''
         if (idx + 1) % 100000 == 0:
           logging.info("Computing %i variant intersections: %i done", len(variants), idx + 1)
     logging.info("Computing %i variant intersections: done", len(variants))
