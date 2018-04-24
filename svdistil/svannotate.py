@@ -93,7 +93,6 @@ class AnnIntervals(object):
         if chrom not in self.chroms:
             self.chroms[chrom] = IntervalTree()
         tree = self.chroms[chrom]
-        #tree[start:end] = val
         tree.add(start, end, val)
 
     def lookup(self, chrom, start, end):
