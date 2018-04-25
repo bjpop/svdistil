@@ -17,7 +17,9 @@ setup(
         'console_scripts': ['svdistil = svdistil.svdistil:main',
             'svqualfilter = svdistil.svqualfilter:main',
             'svmerge = svdistil.svmerge:main',
+            'cnvmerge = svdistil.cnvmerge:main',
             'svannotate = svdistil.svannotate:main',
+            'cnvannotate = svdistil.cnvannotate:main',
             'snvdistil = svdistil.snvdistil:main',
             ]
     },
