@@ -67,11 +67,10 @@ def parse_args():
     parser.add_argument('--ispass',
                         action='store_true',
                         help='only keep variants whose filter field is PASS')
-    parser.add_argument('vcf_files',
-                        nargs='*',
+    parser.add_argument('vcf_file',
                         metavar='VCF_FILE',
                         type=str,
-                        help='Input VCF files')
+                        help='Input VCF file')
     return parser.parse_args()
 
 
@@ -125,16 +124,55 @@ def parse_gt_bases(ref, alts, base):
     alleles = base.split('/')
     return "/".join([seq_map[a] for a in alleles])
 
-'''
-Consequence|IMPACT|Codons|Amino_acids|Gene|SYMBOL|Feature|EXON|PolyPhen|SIFT|Protein_position|BIOTYPE|HGVSc|HGVSp|cDNA_position|CDS_position|HGVSc|HGVSp|cDNA_position|CDS_position|gnomAD_AF|gnomAD_AFR_AF|gnomAD_AMR_AF|gnomAD_ASJ_AF|gnomAD_EAS_AF|gnomAD_FIN_AF|gnomAD_NFE_AF|gnomAD_OTH_AF|gnomAD_SAS_AF|MaxEntScan_alt|MaxEntScan_diff|MaxEntScan_ref|PICK
-'''
-def parse_vep(consequence_info):
-    fields = consequence_info.split("|")
-    consequence = fields[0]
-    #impact = fields[1]
-    gene = fields[5]
-    gnomad_af = fields[20]
-    return [consequence, gene, gnomad_af]
+CONSEQUENCE_HEADERS = "Consequence|IMPACT|Codons|Amino_acids|Gene|SYMBOL|Feature|EXON|PolyPhen|SIFT|Protein_position|BIOTYPE|HGVSc|HGVSp|cDNA_position|CDS_position|HGVSc|HGVSp|cDNA_position|CDS_position|gnomAD_AF|gnomAD_AFR_AF|gnomAD_AMR_AF|gnomAD_ASJ_AF|gnomAD_EAS_AF|gnomAD_FIN_AF|gnomAD_NFE_AF|gnomAD_OTH_AF|gnomAD_SAS_AF|MaxEntScan_alt|MaxEntScan_diff|MaxEntScan_ref|PICK".split("|")
+
+def parse_csq(csq):
+    fields = csq.split("|")
+    last = fields[-4:-1]
+    if last != ['', '', ''] and fields != ['']:
+        print(fields)
+    if len(fields) == len(CONSEQUENCE_HEADERS):
+        return { key:value for (key, value) in zip(CONSEQUENCE_HEADERS, fields) }
+    else:
+        return {}
+
+
+VEP_ANNOTATION_HEADERS = ["consequence", "impact", "gene", "exon", "hgvsc", "hgvsp", "polyphen", "sift", "maxentscan_alt", "maxentscan_diff", "maxentscan_ref", "gnomad_af", "gnomad_afr_af", "gnomad_amr_af", "gnomad_asj_af", "gnomad_eas_af", "gnomad_fin_af", "gnomad_nfe_af", "gnomad_sas_af", "gnomad_oth_af"]
+
+INFO_ANNOTATION_HEADERS = ["revel", "cadd"] + VEP_ANNOTATION_HEADERS
+
+def parse_info(info):
+    vep_consequences = info.get('CSQ', '').split(',')
+    csqs = [parse_csq(csq) for csq in vep_consequences]
+    vep_annotations = [''] * len(VEP_ANNOTATION_HEADERS)
+    for csq in csqs:
+        pick = csq.get('PICK', '')
+        if pick == '1':
+            consequence = csq.get('Consequence', '')
+            impact = csq.get('IMPACT', '')
+            gene = csq.get('SYMBOL', '')
+            exon = csq.get('EXON', '')
+            hgvsc = csq.get('HGVSc', '')
+            hgvsp = csq.get('HGVSp', '')
+            polyphen = csq.get('PolyPhen', '')
+            sift = csq.get('SIFT', '')
+            maxentscan_alt = csq.get('MaxEntScan_alt', '')
+            maxentscan_diff = csq.get('MaxEntScan_diff', '')
+            maxentscan_ref = csq.get('MaxEntScan_ref', '')
+            gnomad_af = csq.get('gnomAD_AF', '')
+            gnomad_afr_af = csq.get('gnomAD_AFR_AF', '')
+            gnomad_amr_af = csq.get('gnomAD_AMR_AF', '')
+            gnomad_asj_af = csq.get('gnomAD_ASJ_AF', '')
+            gnomad_eas_af = csq.get('gnomAD_EAS_AF', '')
+            gnomad_fin_af = csq.get('gnomAD_FIN_AF', '')
+            gnomad_nfe_af = csq.get('gnomAD_NFE_AF', '')
+            gnomad_sas_af = csq.get('gnomAD_SAS_AF', '')
+            gnomad_oth_af = csq.get('gnomAD_OTH_AF', '')
+            vep_annotations = [consequence, impact, gene, exon, hgvsc, hgvsp, polyphen, sift, maxentscan_alt, maxentscan_diff, maxentscan_ref, gnomad_af, gnomad_afr_af, gnomad_amr_af, gnomad_asj_af, gnomad_eas_af, gnomad_fin_af, gnomad_nfe_af, gnomad_sas_af, gnomad_oth_af]
+            break
+    revel = info.get('revel', '')
+    cadd_phred = info.get('cadd_pred', '')
+    return [revel, cadd_phred] + vep_annotations
 
 
 def process_variants(writer, qual_thresh, filter_pass, samples, vcf):
@@ -148,22 +186,23 @@ def process_variants(writer, qual_thresh, filter_pass, samples, vcf):
             else:
                 qual_str = "."
             alt_str = ";".join(var.ALT)
-            consequences = var.INFO['CSQ'].split(',')
-            annotations = parse_vep(consequences[0]) 
+            info_annotations = parse_info(var.INFO) 
             genotypes = [parse_gt_bases(var.REF, var.ALT, base) for base in var.gt_bases]
-            new_row = tuple([var.CHROM, var.POS, var.REF, alt_str, var.var_type] + genotypes)
-            writer.writerow(new_row)
+            # this assumes we have only one alt allele
+            num_carriers = len([gt for gt in genotypes if "1" in gt])
+            new_row = tuple([var.CHROM, var.POS, var.REF, alt_str, var.var_type] + info_annotations + [num_carriers] + genotypes)
+            #writer.writerow(new_row)
 
 
 def process_files(options):
+    vcf_filename = options.vcf_file
+    logging.info("Processing VCF file from %s", vcf_filename)
+    vcf = VCF(vcf_filename)
+    samples = vcf.samples
     writer = csv.writer(sys.stdout, delimiter="\t")
-    header = ["chr", "pos", "qual", "sample"]
+    header = ["chr", "pos", "ref", "alt", "type"] + INFO_ANNOTATION_HEADERS + ["num carriers"] + samples 
     writer.writerow(header)
-    for vcf_filename in options.vcf_files:
-        logging.info("Processing VCF file from %s", vcf_filename)
-        vcf = VCF(vcf_filename)
-        samples = vcf.samples
-        process_variants(writer, options.qual, options.ispass, samples, vcf)
+    process_variants(writer, options.qual, options.ispass, samples, vcf)
 
 
 
