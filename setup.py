@@ -22,6 +22,7 @@ setup(
             'cnvannotate = svdistil.cnvannotate:main',
             'snvdistil = svdistil.snvdistil:main',
             'snvannotate = svdistil.snvannotate:main',
+            'snvfilter = svdistil.snvfilter:main',
             ]
     },
     url='https://github.com/bjpop/svdistil',

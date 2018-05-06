@@ -99,42 +99,55 @@ class AnnIntervals(object):
 def read_annotations(pad, annotations_file):
     intervals = AnnIntervals()
     tiers = set()
+    genes = {}
     with open(annotations_file) as file:
         reader = csv.DictReader(file, delimiter='\t')
         for row in reader:
             this_tier = int(row['tier'])
             tiers.add(this_tier)
-            val = (row['gene'], this_tier)
+            this_gene = row['gene']
+            genes[this_gene] = this_tier
+            val = (this_gene, this_tier)
             this_start = int(row['start']) - pad 
             this_end = int(row['end']) + pad
             intervals.add(row['chrom'], this_start, this_end, val)
-    return tiers, intervals
+    return tiers, intervals, genes
 
 
 def print_variant(tiers, fieldnames, row, intersections):
     hits = {}
-    for i in intersections:
-        gene, tier = i.data
+    lowest_tier = None  
+    for (gene, tier) in intersections:
         if tier not in hits:
             hits[tier] = set()
         hits[tier].add(gene)
+        if lowest_tier is None or tier < lowest_tier:
+            lowest_tier = tier
+    lowest_tier_str = '' if lowest_tier is None else str(lowest_tier)
     output_fields = [row[f] for f in fieldnames]
     output_tiers = [x for l in [["1", ";".join(sorted(hits[t]))] if t in hits else ["0", ""] for t in tiers] for x in l]
-    output_row = output_fields + output_tiers
+    output_row = output_fields + [lowest_tier_str] + output_tiers
     print("\t".join(output_row))
 
-def annotate_variants(tiers, annotations, variants_filename):
+def annotate_variants(tiers, annotations, genes, variants_filename):
     with open(variants_filename) as file:
         reader = csv.DictReader(file, delimiter='\t')
         fieldnames = reader.fieldnames
         sorted_tiers = sorted(tiers) 
         tier_headers = [x for l in [["tier" + str(t), "tier" + str(t) + " genes"]  for t in tiers] for x in l]
-        output_headers = fieldnames + tier_headers
+        output_headers = fieldnames + ["lowest tier"] + tier_headers
         print("\t".join(output_headers))
         for row in reader:
             chrom = row['chr']
             pos = int(row['pos'])
-            intersections = set(annotations.lookup(chrom, pos))
+            # check if we have already identified the gene via other means (ie VEP)
+            gene = row['gene']
+            intersections = set()
+            if gene in genes:
+                tier = genes[gene]
+                intersections.add((gene, tier))
+            for item in annotations.lookup(chrom, pos):
+                intersections.add(item.data)
             print_variant(sorted_tiers, fieldnames, row, intersections)
 
 def init_logging(log_filename):
@@ -163,8 +176,8 @@ def main():
     "Orchestrate the execution of the program"
     options = parse_args()
     init_logging(options.log)
-    tiers, annotations = read_annotations(options.pad, options.annotations)
-    annotate_variants(tiers, annotations, options.tsv_file)
+    tiers, annotations, genes = read_annotations(options.pad, options.annotations)
+    annotate_variants(tiers, annotations, genes, options.tsv_file)
 
 
 # If this script is run from the command line then call the main function.
