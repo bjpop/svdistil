@@ -24,11 +24,12 @@ setup(
             'snvannotate = svdistil.snvannotate:main',
             'snvinsight = svdistil.snvinsight:main',
             'snvfilter = svdistil.snvfilter:main',
+            'snvgene = svdistil.snvgene:main',
             ]
     },
     url='https://github.com/bjpop/svdistil',
     license='LICENSE',
     description=('Convert DNA structural variants in VCF files into BED format'),
     long_description=(LONG_DESCRIPTION),
-    install_requires=["cyvcf2", "networkx", "quicksect"],
+    install_requires=["cyvcf2", "networkx", "quicksect", "numpy", "scipy", "plotly"],
 )
