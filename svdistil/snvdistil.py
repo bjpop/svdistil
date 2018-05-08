@@ -134,7 +134,46 @@ def parse_csq(csq):
         return {}
 
 
-VEP_ANNOTATION_HEADERS = ["consequence", "impact", "gene", "feature", "exon", "hgvsc", "hgvsp", "polyphen", "sift", "maxentscan_alt", "maxentscan_diff", "maxentscan_ref", "genesplicer", "gnomad_af", "gnomad_afr_af", "gnomad_amr_af", "gnomad_asj_af", "gnomad_eas_af", "gnomad_fin_af", "gnomad_nfe_af", "gnomad_sas_af", "gnomad_oth_af"]
+'''
+There follows a "/"-separated string consisting of the following data:
+ 1) type (donor, acceptor)
+ 2) coordinates (start-end)
+ 3) confidence (Low, Medium, High)
+ 4) score
+ Example: loss/acceptor/727006-727007/High/16.231924
+'''
+
+def parse_genesplicer_conf(conf):
+    if conf == "Low":
+        return 0
+    elif conf == "Medium":
+        return 1
+    elif conf == "High":
+        return 2
+    else:
+        return 3
+
+def parse_genesplicer(annotation):
+    # we return max_conf, max_score and finally the entire genesplicer annotation
+    max_conf = ''
+    max_score = '' 
+    sites = annotation.split(",")
+    for s in sites:
+        fields = s.split("/")
+        try:
+            if len(fields) == 5:
+                this_conf = fields[3]
+                this_score = float(fields[4])
+                if max_conf == '' or (parse_genesplicer_conf(this_conf) > parse_genesplicer_conf(max_conf)):
+                    max_conf = this_conf
+                if max_score == '' or this_score > max_score:
+                    max_score = this_score
+        except:
+            pass
+    return max_conf, str(max_score), annotation
+
+
+VEP_ANNOTATION_HEADERS = ["consequence", "impact", "gene", "feature", "exon", "hgvsc", "hgvsp", "polyphen", "sift", "maxentscan_alt", "maxentscan_diff", "maxentscan_ref", "genesplicer max conf", "genesplicer max score", "genesplicer all", "gnomad_af", "gnomad_afr_af", "gnomad_amr_af", "gnomad_asj_af", "gnomad_eas_af", "gnomad_fin_af", "gnomad_nfe_af", "gnomad_sas_af", "gnomad_oth_af"]
 
 INFO_ANNOTATION_HEADERS = ["revel", "cadd phred", "cadd raw"] + VEP_ANNOTATION_HEADERS
 
@@ -157,7 +196,7 @@ def parse_info(info):
             maxentscan_alt = csq.get('MaxEntScan_alt', '')
             maxentscan_diff = csq.get('MaxEntScan_diff', '')
             maxentscan_ref = csq.get('MaxEntScan_ref', '')
-            genesplicer = csq.get('GeneSplicer', '')
+            genesplicer_max_conf, genesplicer_max_score, genesplicer_all = parse_genesplicer(csq.get('GeneSplicer', ''))
             gnomad_af = csq.get('gnomAD_AF', '')
             gnomad_afr_af = csq.get('gnomAD_AFR_AF', '')
             gnomad_amr_af = csq.get('gnomAD_AMR_AF', '')
@@ -167,7 +206,7 @@ def parse_info(info):
             gnomad_nfe_af = csq.get('gnomAD_NFE_AF', '')
             gnomad_sas_af = csq.get('gnomAD_SAS_AF', '')
             gnomad_oth_af = csq.get('gnomAD_OTH_AF', '')
-            vep_annotations = [consequence, impact, gene, feature, exon, hgvsc, hgvsp, polyphen, sift, maxentscan_alt, maxentscan_diff, maxentscan_ref, genesplicer, gnomad_af, gnomad_afr_af, gnomad_amr_af, gnomad_asj_af, gnomad_eas_af, gnomad_fin_af, gnomad_nfe_af, gnomad_sas_af, gnomad_oth_af]
+            vep_annotations = [consequence, impact, gene, feature, exon, hgvsc, hgvsp, polyphen, sift, maxentscan_alt, maxentscan_diff, maxentscan_ref, genesplicer_max_conf, genesplicer_max_score, genesplicer_all, gnomad_af, gnomad_afr_af, gnomad_amr_af, gnomad_asj_af, gnomad_eas_af, gnomad_fin_af, gnomad_nfe_af, gnomad_sas_af, gnomad_oth_af]
             break
     revel = info.get('revel', '')
     cadd_phred = info.get('cadd_phred', '')
