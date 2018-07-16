@@ -23,6 +23,7 @@ setup(
             'snvdistil = svdistil.snvdistil:main',
             'snvannotate = svdistil.snvannotate:main',
             'snvinsight = svdistil.snvinsight:main',
+            'snvhsf = svdistil.snvhsf:main',
             'snvfilter = svdistil.snvfilter:main',
             'snvgene = svdistil.snvgene:main',
             ]

@@ -175,7 +175,7 @@ def parse_genesplicer(annotation):
 
 VEP_ANNOTATION_HEADERS = ["consequence", "impact", "gene", "feature", "exon", "hgvsc", "hgvsp", "polyphen", "sift", "maxentscan_alt", "maxentscan_diff", "maxentscan_ref", "genesplicer max conf", "genesplicer max score", "genesplicer all", "gnomad_af", "gnomad_afr_af", "gnomad_amr_af", "gnomad_asj_af", "gnomad_eas_af", "gnomad_fin_af", "gnomad_nfe_af", "gnomad_sas_af", "gnomad_oth_af"]
 
-INFO_ANNOTATION_HEADERS = ["revel", "cadd phred", "cadd raw"] + VEP_ANNOTATION_HEADERS
+INFO_ANNOTATION_HEADERS = ["revel", "cadd phred", "cadd raw", "clinvar disease name", "clinvar pathogenic", "clinvar review status", "clinvar_sig"] + VEP_ANNOTATION_HEADERS
 
 def parse_info(info):
     vep_consequences = info.get('CSQ', '').split(',')
@@ -211,7 +211,11 @@ def parse_info(info):
     revel = info.get('revel', '')
     cadd_phred = info.get('cadd_phred', '')
     cadd_raw = info.get('cadd_raw', '')
-    return [revel, cadd_phred, cadd_raw] + vep_annotations
+    clinvar_disease_name = info.get('clinvar_disease_name', '')
+    clinvar_pathogenic = info.get('clinvar_pathogenic', '')
+    clinvar_review_status = info.get('clinvar_review_status', '')
+    clinvar_sig = info.get('clinvar_sig', '')
+    return [revel, cadd_phred, cadd_raw, clinvar_disease_name, clinvar_pathogenic, clinvar_review_status, clinvar_sig] + vep_annotations
 
 
 def process_variants(writer, qual_thresh, filter_pass, samples, vcf):

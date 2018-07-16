@@ -68,6 +68,10 @@ def parse_args():
                         metavar='LOG_FILE',
                         type=str,
                         help='record program progress in LOG_FILE')
+    parser.add_argument('infile',
+                        metavar='INPUT_FILE',
+                        type=str,
+                        help='input TSV file')
     return parser.parse_args()
 
 
@@ -95,47 +99,50 @@ def init_logging(log_filename):
 
 samples = ["0131313009", "0131326001", "0151032037", "0151052001",  "0151078001", "0151081002", "0151095001", "0350124001", "0350355001", "0636307001", "0636307011", "0656045001", "0656050001", "0757017010", "0757045001", "0757045010", "9930087001", "C4055110001", "E60176"]
 
-def process_variants():
+def process_variants(var_types, genotypes, max_num_carriers, infile, outfile):
     counts = {}
-    reader = csv.DictReader(sys.stdin, delimiter="\t")
-    for row in reader:
-        gene = row['gene']
-        num_carriers = int(row['num carriers'])
-        if gene and num_carriers == 1:
-            if gene not in counts:
-                counts[gene] = {}
-            for sample in samples:
-                if "1" in row[sample]:
-                    if sample not in counts[gene]:
-                        counts[gene][sample] = 0
-                    counts[gene][sample] += 1
-                    break
+    with open(infile) as file:
+        reader = csv.DictReader(file, delimiter="\t")
+        for row in reader:
+            gene = row['gene']
+            num_carriers = int(row['num carriers'])
+            this_var_type = row['type']
+            if gene and this_var_type in var_types and num_carriers <= max_num_carriers:
+                if gene not in counts:
+                    counts[gene] = {}
+                for sample in samples:
+                    if row[sample] in genotypes:
+                        if sample not in counts[gene]:
+                            counts[gene][sample] = 0
+                        counts[gene][sample] += 1
     sample_headers = [[sample + " count", sample + " z score", sample + " p value"] for sample in samples]
     flat_sample_headers = [x for sublist in sample_headers for x in sublist]
-    headers = "\t".join(["gene"] + flat_sample_headers)
-    print(headers)
-    for gene in sorted(counts):
-        sample_counts = []
-        for sample in samples:
-            if sample in counts[gene]:
-                sample_counts.append(counts[gene][sample]) 
-            else:
-                sample_counts.append(0)
-        zscores = stats.zscore(np.array(sample_counts))
-        pvalues = stats.norm.sf(abs(zscores))*2
-        scores = [[c, z, p] for (c, z, p) in zip(sample_counts, zscores, pvalues)]
-        row_data = [gene] + [str(x) for sublist in scores for x in sublist] 
-        print("\t".join(row_data))
-        if gene == 'MSH2':
-            plot(sample_counts)
+    with open(outfile, "w") as file:
+        headers = ["gene"] + flat_sample_headers
+        writer = csv.writer(file, delimiter="\t")
+        writer.writerow(headers)
+        for gene in sorted(counts):
+            sample_counts = []
+            for sample in samples:
+                if sample in counts[gene]:
+                    sample_counts.append(counts[gene][sample]) 
+                else:
+                    sample_counts.append(0)
+            zscores = stats.zscore(np.array(sample_counts))
+            pvalues = stats.norm.sf(abs(zscores))*2
+            scores = [[c, z, p] for (c, z, p) in zip(sample_counts, zscores, pvalues)]
+            row_data = [gene] + [str(x) for sublist in scores for x in sublist] 
+            writer.writerow(row_data)
+            if gene == 'MSH2':
+                plot(outfile, sample_counts)
 
 
-def plot(counts):
+def plot(outfile, counts):
     counts = np.array(counts)
     trace1 = go.Histogram(
         x=counts,
         histnorm='count',
-        name='MSH2 sample-unique variants',
+        name=outfile,
         xbins=dict(
             start=counts.min(),
             end=counts.max(),
@@ -146,33 +153,40 @@ def plot(counts):
     data = [trace1]
 
     layout = go.Layout(
-        title='MSH2 sample-unique variants',
+        title=outfile,
         xaxis=dict(
-            title='Number of unique variants'
+            title='Number of variants'
         ),
         yaxis=dict(
             title='Number of samples'
         ),
     )
     fig = go.Figure(data=data, layout=layout)
-    plotly.offline.plot(fig, filename='MSH2.histogram.html')
-    '''
-    histogram_data = [{
-        'x' : counts,
-        'type': 'histogram'
-    }]
-    histogram_layout = {'title': 'histogram of unique variants in MSH2',
-        'xaxis': {'title': 'number of unique variants'}, 'yaxis': {'title': 'count'}}
-    histogram_fig = {'data': histogram_data, 'layout': histogram_layout}
-    py.offline.plot(histogram_fig, filename="MSH2.histogram")
-    '''
+    plotly.offline.plot(fig, filename=outfile + 'MSH2.histogram.html')
 
 
 def main():
     "Orchestrate the execution of the program"
     options = parse_args()
     init_logging(options.log)
-    process_variants()
+    process_variants(['snp', 'indel'], ['0/1', '1/1'], 1, options.infile, "snps_indels_het_hom_unique.tsv")
+    process_variants(['snp', 'indel'], ['0/1'], 1, options.infile, "snps_indels_het_unique.tsv")
+    process_variants(['snp', 'indel'], ['1/1'], 1, options.infile, "snps_indels_hom_unique.tsv")
+    process_variants(['indel'], ['0/1', '1/1'], 1, options.infile, "indels_het_hom_unique.tsv")
+    process_variants(['indel'], ['0/1'], 1, options.infile, "indels_het_unique.tsv")
+    process_variants(['indel'], ['1/1'], 1, options.infile, "indels_hom_unique.tsv")
+    process_variants(['snp'], ['0/1', '1/1'], 1, options.infile, "snps_het_hom_unique.tsv")
+    process_variants(['snp'], ['0/1'], 1, options.infile, "snps_het_unique.tsv")
+    process_variants(['snp'], ['1/1'], 1, options.infile, "snps_hom_unique.tsv")
+    process_variants(['snp', 'indel'], ['0/1', '1/1'], 1000, options.infile, "snps_indels_het_hom_all.tsv")
+    process_variants(['snp', 'indel'], ['0/1'], 1000, options.infile, "snps_indels_het_all.tsv")
+    process_variants(['snp', 'indel'], ['1/1'], 1000, options.infile, "snps_indels_hom_all.tsv")
+    process_variants(['indel'], ['0/1', '1/1'], 1000, options.infile, "indels_het_hom_all.tsv")
+    process_variants(['indel'], ['0/1'], 1000, options.infile, "indels_het_all.tsv")
+    process_variants(['indel'], ['1/1'], 1000, options.infile, "indels_hom_all.tsv")
+    process_variants(['snp'], ['0/1', '1/1'], 1000, options.infile, "snps_het_hom_all.tsv")
+    process_variants(['snp'], ['0/1'], 1000, options.infile, "snps_het_all.tsv")
+    process_variants(['snp'], ['1/1'], 1000, options.infile, "snps_hom_all.tsv")
 
 # If this script is run from the command line then call the main function.
 if __name__ == '__main__':
